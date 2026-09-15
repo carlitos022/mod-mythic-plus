@@ -1,0 +1,33 @@
+#
+# mod-mythic-plus
+# Progressive Mythic Instances for AzerothCore 3.3.5a
+#
+
+[worldserver]
+
+########################################
+# Mythic Plus
+########################################
+#
+# MythicPlus.Enable
+#   Enable or disable the module.
+#   Default: 1
+#
+# MythicPlus.MaxLevel
+#   Maximum selectable mythic level.
+#   v0.1 supports levels 1 through 5.
+#   Default: 5
+#
+# MythicPlus.NpcEntry
+#   Creature entry used by the mythic dungeon master NPC.
+#   Default: 90099
+#
+# MythicPlus.Debug
+#   Enable additional development logs.
+#   Default: 0
+#
+
+MythicPlus.Enable = 1
+MythicPlus.MaxLevel = 5
+MythicPlus.NpcEntry = 90099
+MythicPlus.Debug = 0
