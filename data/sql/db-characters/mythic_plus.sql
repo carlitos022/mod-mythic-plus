@@ -1,12 +1,20 @@
 -- mod-mythic-plus
 -- Characters database: persistent runtime state for mythic instances.
 
+CREATE TABLE IF NOT EXISTS `custom_mythic_pending` (
+    `leader_guid` INT UNSIGNED NOT NULL,
+    `map_id` SMALLINT UNSIGNED NOT NULL,
+    `mythic_level` TINYINT UNSIGNED NOT NULL,
+    `selected_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`leader_guid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `custom_mythic_instances` (
     `instance_id` INT UNSIGNED NOT NULL,
     `map_id` SMALLINT UNSIGNED NOT NULL,
     `mythic_level` TINYINT UNSIGNED NOT NULL,
     `leader_guid` INT UNSIGNED NOT NULL,
-    `group_guid` INT UNSIGNED NOT NULL DEFAULT 0,
+    `group_guid` BIGINT UNSIGNED NOT NULL DEFAULT 0,
     `status` ENUM('created','active','completed','failed','abandoned') NOT NULL DEFAULT 'created',
     `started_at` TIMESTAMP NULL DEFAULT NULL,
     `completed_at` TIMESTAMP NULL DEFAULT NULL,
