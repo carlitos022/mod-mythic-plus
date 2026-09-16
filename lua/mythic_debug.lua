@@ -5,6 +5,7 @@
 local NPC_ENTRY = 90099
 local GOSSIP_HELLO = 1
 local GOSSIP_SELECT = 2
+local unpack_args = table.unpack or unpack
 
 local function Log(msg)
     print("[MythicPlus][DEBUG] " .. tostring(msg))
@@ -13,7 +14,7 @@ end
 local function SafeCall(label, fn, ...)
     local args = {...}
     local ok, result = xpcall(function()
-        return fn(table.unpack(args))
+        return fn(unpack_args(args))
     end, debug.traceback)
 
     if not ok then
