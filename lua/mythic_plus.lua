@@ -9,7 +9,7 @@ MythicPlus.Config = {
     MinLevel = 1,
     MaxLevel = 5,
     PilotMapId = 632,
-    Debug = false
+    Debug = true
 }
 
 MythicPlus.Levels = MythicPlus.Levels or {}
@@ -23,12 +23,12 @@ local PLAYER_EVENT_ON_MAP_CHANGE = 28
 local INSTANCE_EVENT_ON_CREATURE_CREATE = 5
 local ALL_CREATURE_EVENT_ON_DEAL_DAMAGE = 13
 
-local GOSSIP_TEXT_ID = 100
+local GOSSIP_TEXT_ID = 1
 local MENU_LEVEL_BASE = 100
 
 local function Debug(message)
     if MythicPlus.Config.Debug then
-        print("[MythicPlus] " .. tostring(message))
+        print("[MythicPlus][DEBUG] " .. tostring(message))
     end
 end
 
@@ -57,10 +57,8 @@ function MythicPlus.ReloadLevels()
     end
 
     local count = 0
-
     repeat
         local level = query:GetUInt8(0)
-
         MythicPlus.Levels[level] = {
             level = level,
             mobHealth = query:GetFloat(1),
@@ -69,7 +67,6 @@ function MythicPlus.ReloadLevels()
             bossDamage = query:GetFloat(4),
             reward = query:GetFloat(5)
         }
-
         count = count + 1
     until not query:NextRow()
 
@@ -91,10 +88,8 @@ function MythicPlus.ReloadDungeons()
     end
 
     local count = 0
-
     repeat
         local mapId = query:GetUInt32(0)
-
         MythicPlus.Dungeons[mapId] = {
             mapId = mapId,
             name = query:GetString(1),
@@ -102,7 +97,6 @@ function MythicPlus.ReloadDungeons()
             minLevel = query:GetUInt8(3),
             maxLevel = query:GetUInt8(4)
         }
-
         count = count + 1
     until not query:NextRow()
 
@@ -124,14 +118,11 @@ function MythicPlus.ReloadBosses()
     end
 
     local count = 0
-
     repeat
         local mapId = query:GetUInt32(0)
         local entry = query:GetUInt32(1)
-
         MythicPlus.Bosses[mapId] = MythicPlus.Bosses[mapId] or {}
         MythicPlus.Bosses[mapId][entry] = query:GetUInt8(2)
-
         count = count + 1
     until not query:NextRow()
 
@@ -181,11 +172,9 @@ end
 
 function MythicPlus.GetLeaderLowGuid(player)
     local group = player:GetGroup()
-
     if group then
         return GetGUIDLow(group:GetLeaderGUID()), group
     end
-
     return player:GetGUIDLow(), nil
 end
 
@@ -285,6 +274,13 @@ function MythicPlus.SetPendingChallenge(player, mapId, level)
         VALUES (%u, %u, %u, CURRENT_TIMESTAMP)
     ]], leaderLow, mapId, level))
 
+    Debug(string.format(
+        "Pending challenge saved: leader=%u map=%u level=+%u",
+        leaderLow,
+        mapId,
+        level
+    ))
+
     return true
 end
 
@@ -333,20 +329,25 @@ local function BroadcastToGroup(player, message)
 end
 
 local function OnMythicNpcHello(event, player, creature)
+    Debug("Gossip HELLO fired for player=" .. player:GetName() .. " npc=" .. creature:GetEntry())
+
     player:GossipClearMenu()
 
     local dungeon = MythicPlus.GetDungeon(MythicPlus.Config.PilotMapId)
     if not dungeon or not dungeon.enabled then
         Notify(player, "No hay mazmorras miticas habilitadas.")
-        return false
+        player:GossipComplete()
+        return true
     end
+
+    local added = 0
 
     for level = dungeon.minLevel, dungeon.maxLevel do
         local cfg = MythicPlus.GetLevel(level)
 
         if cfg then
             local label = string.format(
-                "|cff00ff00%s +%d|r  Vida mobs x%.2f / Dano x%.2f",
+                "|cff00ff00%s +%d|r  |cffffffffVida x%.2f / Dano x%.2f|r",
                 dungeon.name,
                 level,
                 cfg.mobHealth,
@@ -354,19 +355,23 @@ local function OnMythicNpcHello(event, player, creature)
             )
 
             player:GossipMenuAddItem(0, label, 0, MENU_LEVEL_BASE + level)
+            added = added + 1
         end
     end
 
+    Debug("Gossip items added=" .. added)
     player:GossipSendMenu(GOSSIP_TEXT_ID, creature)
-    return false
+    return true
 end
 
 local function OnMythicNpcSelect(event, player, creature, sender, intid)
+    Debug("Gossip SELECT fired sender=" .. tostring(sender) .. " intid=" .. tostring(intid))
+
     local level = tonumber(intid) - MENU_LEVEL_BASE
 
     if level < MythicPlus.Config.MinLevel or level > MythicPlus.Config.MaxLevel then
         player:GossipComplete()
-        return false
+        return true
     end
 
     local ok, reason = MythicPlus.SetPendingChallenge(
@@ -381,10 +386,11 @@ local function OnMythicNpcSelect(event, player, creature, sender, intid)
         if reason == "not_group_leader" then
             Notify(player, "Solo el lider del grupo puede seleccionar la dificultad mitica.")
         else
-            Notify(player, "No se pudo preparar la instancia mitica.")
+            Notify(player, "No se pudo preparar la instancia mitica. Motivo: " .. tostring(reason))
         end
 
-        return false
+        Debug("Pending challenge failed reason=" .. tostring(reason))
+        return true
     end
 
     local dungeon = MythicPlus.GetDungeon(MythicPlus.Config.PilotMapId)
@@ -394,33 +400,38 @@ local function OnMythicNpcSelect(event, player, creature, sender, intid)
         level
     ))
 
-    return false
+    Debug("Mythic +" .. level .. " selected successfully.")
+    return true
 end
 
 local function OnPlayerMapChange(event, player)
     local mapId = player:GetMapId()
-    local dungeon = MythicPlus.GetDungeon(mapId)
+    Debug("MAP_CHANGE player=" .. player:GetName() .. " map=" .. tostring(mapId) .. " instance=" .. tostring(player:GetInstanceId()))
 
+    local dungeon = MythicPlus.GetDungeon(mapId)
     if not dungeon or not dungeon.enabled then
         return
     end
 
     local instanceId = player:GetInstanceId()
     if not instanceId or instanceId <= 0 then
+        Debug("Map is mythic-enabled but instanceId is invalid.")
         return
     end
 
     local active = MythicPlus.GetInstance(instanceId)
     if active then
+        Debug("Instance already registered at mythic +" .. tostring(active.level))
         return
     end
 
     local pending = MythicPlus.GetPendingChallenge(player, mapId)
     if not pending then
+        Debug("No pending mythic challenge found for this player/group.")
         return
     end
 
-    local ok = MythicPlus.RegisterInstance(
+    local ok, reason = MythicPlus.RegisterInstance(
         instanceId,
         mapId,
         pending.level,
@@ -428,6 +439,7 @@ local function OnPlayerMapChange(event, player)
     )
 
     if not ok then
+        Debug("RegisterInstance failed reason=" .. tostring(reason))
         return
     end
 
@@ -477,7 +489,8 @@ local function OnCreatureCreate(event, instanceData, map, creature)
     creature:SetHealth(scaledHealth)
 
     Debug(string.format(
-        "Scaled creature %u in instance %u: HP %u -> %u (x%.2f)",
+        "Scaled %s entry=%u instance=%u HP=%u->%u x%.2f",
+        isBoss and "BOSS" or "MOB",
         creature:GetEntry(),
         instanceId,
         originalMaxHealth,
@@ -519,8 +532,19 @@ local function OnCreatureDealDamage(event, creature, target, damage, damageType)
 
     local isBoss = MythicPlus.IsBoss(mapId, creature:GetEntry())
     local multiplier = isBoss and levelCfg.bossDamage or levelCfg.mobDamage
+    local scaledDamage = math.floor(damage * multiplier)
 
-    return math.floor(damage * multiplier)
+    Debug(string.format(
+        "Damage %s entry=%u instance=%u %u->%u x%.2f",
+        isBoss and "BOSS" or "MOB",
+        creature:GetEntry(),
+        instanceId,
+        damage,
+        scaledDamage,
+        multiplier
+    ))
+
+    return scaledDamage
 end
 
 MythicPlus.ReloadConfig()
@@ -549,6 +573,7 @@ for mapId, dungeon in pairs(MythicPlus.Dungeons) do
             INSTANCE_EVENT_ON_CREATURE_CREATE,
             OnCreatureCreate
         )
+        Debug("Registered creature-create hook for map=" .. tostring(mapId))
     end
 end
 
@@ -557,4 +582,4 @@ RegisterAllCreatureEvent(
     OnCreatureDealDamage
 )
 
-print("[MythicPlus] v0.1 loaded.")
+print("[MythicPlus] v0.1 loaded - gossip fixed, debug enabled.")
