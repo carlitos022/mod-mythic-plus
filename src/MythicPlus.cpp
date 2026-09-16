@@ -3,36 +3,23 @@
  * Progressive Mythic Instances for AzerothCore 3.3.5a
  */
 
-#include "ConfigValueCache.h"
+#include "Config.h"
 #include "ScriptMgr.h"
 
 namespace MythicPlus
 {
-enum class Config
+static bool sEnable = true;
+static uint32 sMaxLevel = 5;
+static uint32 sNpcEntry = 90099;
+static bool sDebug = false;
+
+inline void LoadConfig(bool reload = false)
 {
-    ENABLED,
-    MAX_LEVEL,
-    NPC_ENTRY,
-    DEBUG,
-
-    NUM_CONFIGS
-};
-
-class ConfigData : public ConfigValueCache<Config>
-{
-public:
-    ConfigData() : ConfigValueCache(Config::NUM_CONFIGS) { }
-
-    void BuildConfigCache() override
-    {
-        SetConfigValue<bool>(Config::ENABLED, "MythicPlus.Enable", true);
-        SetConfigValue<uint32>(Config::MAX_LEVEL, "MythicPlus.MaxLevel", 5);
-        SetConfigValue<uint32>(Config::NPC_ENTRY, "MythicPlus.NpcEntry", 90099);
-        SetConfigValue<bool>(Config::DEBUG, "MythicPlus.Debug", false);
-    }
-};
-
-static ConfigData sConfig;
+    sEnable = sConfigMgr->GetOption<bool>("MythicPlus.Enable", true);
+    sMaxLevel = sConfigMgr->GetOption<uint32>("MythicPlus.MaxLevel", 5);
+    sNpcEntry = sConfigMgr->GetOption<uint32>("MythicPlus.NpcEntry", 90099);
+    sDebug = sConfigMgr->GetOption<bool>("MythicPlus.Debug", false);
+}
 
 class MythicPlusWorldScript : public WorldScript
 {
@@ -44,7 +31,7 @@ public:
 
     void OnBeforeConfigLoad(bool reload) override
     {
-        sConfig.Initialize(reload);
+        LoadConfig(reload);
     }
 };
 } // namespace MythicPlus
