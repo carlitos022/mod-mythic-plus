@@ -16,6 +16,7 @@ MythicPlus.Levels = MythicPlus.Levels or {}
 MythicPlus.Dungeons = MythicPlus.Dungeons or {}
 MythicPlus.Bosses = MythicPlus.Bosses or {}
 MythicPlus.InstanceCache = MythicPlus.InstanceCache or {}
+MythicPlus.ScaledCreatures = MythicPlus.ScaledCreatures or {}
 
 local GOSSIP_EVENT_ON_HELLO = 1
 local GOSSIP_EVENT_ON_SELECT = 2
@@ -244,6 +245,8 @@ function MythicPlus.RegisterInstance(instanceId, mapId, level, leaderGuid)
         status = "active"
     }
 
+    MythicPlus.ScaledCreatures[instanceId] = {}
+
     Debug(string.format(
         "Registered instance %u map %u at mythic +%u.",
         instanceId,
@@ -328,6 +331,95 @@ local function BroadcastToGroup(player, message)
     end
 end
 
+function MythicPlus.ScaleCreature(creature, active)
+    if not creature or not active then
+        return false
+    end
+
+    local instanceId = tonumber(active.instanceId) or creature:GetInstanceId()
+    local mapId = creature:GetMapId()
+
+    if instanceId <= 0 or mapId ~= active.mapId then
+        return false
+    end
+
+    if creature:GetOwnerGUID() ~= 0 then
+        return false
+    end
+
+    MythicPlus.ScaledCreatures[instanceId] = MythicPlus.ScaledCreatures[instanceId] or {}
+
+    local guidLow = creature:GetGUIDLow()
+    if MythicPlus.ScaledCreatures[instanceId][guidLow] then
+        return false
+    end
+
+    local levelCfg = MythicPlus.GetLevel(active.level)
+    if not levelCfg then
+        return false
+    end
+
+    local isBoss = MythicPlus.IsBoss(mapId, creature:GetEntry())
+    local multiplier = isBoss and levelCfg.bossHealth or levelCfg.mobHealth
+    local originalMaxHealth = creature:GetMaxHealth()
+
+    if originalMaxHealth <= 0 then
+        return false
+    end
+
+    local scaledHealth = math.floor(originalMaxHealth * multiplier)
+
+    creature:SetMaxHealth(scaledHealth)
+    creature:SetHealth(scaledHealth)
+
+    MythicPlus.ScaledCreatures[instanceId][guidLow] = true
+
+    Debug(string.format(
+        "Scaled %s entry=%u guid=%u instance=%u HP=%u->%u x%.2f",
+        isBoss and "BOSS" or "MOB",
+        creature:GetEntry(),
+        guidLow,
+        instanceId,
+        originalMaxHealth,
+        scaledHealth,
+        multiplier
+    ))
+
+    return true
+end
+
+function MythicPlus.ScaleExistingCreatures(map, active)
+    if not map or not active then
+        return 0
+    end
+
+    local creatures = map:GetCreatures()
+    if not creatures then
+        Debug("Map:GetCreatures returned nil for instance=" .. tostring(active.instanceId))
+        return 0
+    end
+
+    local total = 0
+    local scaled = 0
+
+    for _, creature in pairs(creatures) do
+        total = total + 1
+        if MythicPlus.ScaleCreature(creature, active) then
+            scaled = scaled + 1
+        end
+    end
+
+    Debug(string.format(
+        "Existing creature pass instance=%u total=%u scaled=%u level=+%u",
+        active.instanceId,
+        total,
+        scaled,
+        active.level
+    ))
+
+    return scaled
+end
+
 local function OnMythicNpcHello(event, player, creature)
     Debug("Gossip HELLO fired for player=" .. player:GetName() .. " npc=" .. creature:GetEntry())
 
@@ -406,14 +498,15 @@ end
 
 local function OnPlayerMapChange(event, player)
     local mapId = player:GetMapId()
-    Debug("MAP_CHANGE player=" .. player:GetName() .. " map=" .. tostring(mapId) .. " instance=" .. tostring(player:GetInstanceId()))
+    local instanceId = player:GetInstanceId()
+
+    Debug("MAP_CHANGE player=" .. player:GetName() .. " map=" .. tostring(mapId) .. " instance=" .. tostring(instanceId))
 
     local dungeon = MythicPlus.GetDungeon(mapId)
     if not dungeon or not dungeon.enabled then
         return
     end
 
-    local instanceId = player:GetInstanceId()
     if not instanceId or instanceId <= 0 then
         Debug("Map is mythic-enabled but instanceId is invalid.")
         return
@@ -422,6 +515,7 @@ local function OnPlayerMapChange(event, player)
     local active = MythicPlus.GetInstance(instanceId)
     if active then
         Debug("Instance already registered at mythic +" .. tostring(active.level))
+        MythicPlus.ScaleExistingCreatures(player:GetMap(), active)
         return
     end
 
@@ -445,11 +539,15 @@ local function OnPlayerMapChange(event, player)
 
     MythicPlus.ClearPendingChallenge(pending.leaderGuid)
 
+    active = MythicPlus.GetInstance(instanceId)
+    local scaledCount = MythicPlus.ScaleExistingCreatures(player:GetMap(), active)
+
     BroadcastToGroup(player, string.format(
-        "%s +%d ACTIVADA. Instance ID: %u",
+        "%s +%d ACTIVADA. Instance ID: %u. Criaturas escaladas: %u",
         dungeon.name,
         pending.level,
-        instanceId
+        instanceId,
+        scaledCount
     ))
 end
 
@@ -466,37 +564,7 @@ local function OnCreatureCreate(event, instanceData, map, creature)
         return
     end
 
-    if creature:GetOwnerGUID() ~= 0 then
-        return
-    end
-
-    local levelCfg = MythicPlus.GetLevel(active.level)
-    if not levelCfg then
-        return
-    end
-
-    local isBoss = MythicPlus.IsBoss(mapId, creature:GetEntry())
-    local multiplier = isBoss and levelCfg.bossHealth or levelCfg.mobHealth
-    local originalMaxHealth = creature:GetMaxHealth()
-
-    if originalMaxHealth <= 0 then
-        return
-    end
-
-    local scaledHealth = math.floor(originalMaxHealth * multiplier)
-
-    creature:SetMaxHealth(scaledHealth)
-    creature:SetHealth(scaledHealth)
-
-    Debug(string.format(
-        "Scaled %s entry=%u instance=%u HP=%u->%u x%.2f",
-        isBoss and "BOSS" or "MOB",
-        creature:GetEntry(),
-        instanceId,
-        originalMaxHealth,
-        scaledHealth,
-        multiplier
-    ))
+    MythicPlus.ScaleCreature(creature, active)
 end
 
 local function OnCreatureDealDamage(event, creature, target, damage, damageType)
@@ -582,4 +650,4 @@ RegisterAllCreatureEvent(
     OnCreatureDealDamage
 )
 
-print("[MythicPlus] v0.1 loaded - gossip fixed, debug enabled.")
+print("[MythicPlus] v0.1 loaded - existing creature scaling enabled.")
