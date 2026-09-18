@@ -572,7 +572,10 @@ local function OnCreatureDealDamage(event, creature, target, damage, damageType)
         return damage
     end
 
-    if creature:GetOwnerGUID() ~= 0 then
+    -- Ignore only truly owned/summoned creatures.
+    -- GetOwnerGUID() may return nil in this ALE build, and nil ~= 0 is true.
+    local owner = creature:GetOwner()
+    if owner then
         return damage
     end
 
